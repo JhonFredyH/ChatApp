@@ -21,11 +21,20 @@ const allowedOrigins = [
   process.env.CLIENT_URL || 'http://localhost:5173',
   'https://chat-app-sigma-six-76.vercel.app',
   'https://chat-9bu4njzd6-jhonfredyhs-projects.vercel.app',
+  'https://chatapp-git-main-jhonfredyhs-projects.vercel.app',
 ];
 
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: function(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.log('CORS blocked origin:', origin);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST'],
   },
@@ -37,6 +46,7 @@ app.use(cors({
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.log('CORS blocked origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -108,6 +118,8 @@ io.on('connection', (socket) => {
 const seedChannels = async () => {
   try {
     console.log('⏳ Intentando crear canales por defecto...');
+    
+    // Esperar 5 segundos para dar tiempo a que la DB esté lista
     await new Promise(resolve => setTimeout(resolve, 5000));
     
     const defaultChannels = [
@@ -135,5 +147,6 @@ const seedChannels = async () => {
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  // Ejecutar seed DESPUÉS de iniciar (no bloquea)
   seedChannels();
 });
