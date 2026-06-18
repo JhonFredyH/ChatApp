@@ -1,8 +1,8 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL:         "http://localhost:3001/api",
-  withCredentials: true, // necesario para que las cookies funcionen
+  baseURL: 'https://chatapp-backend-82sc.onrender.com/api',
+  withCredentials: true,
 });
 
 // Si el token expira, reintenta automáticamente
