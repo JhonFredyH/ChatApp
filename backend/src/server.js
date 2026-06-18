@@ -1,150 +1,125 @@
-// src/server.js
-import express       from "express";
-import cors          from "cors";
-import helmet        from "helmet";
-import cookieParser  from "cookie-parser";
-import { createServer } from "http";
-import { Server }       from "socket.io";
-import authRoutes    from "./routes/authRoutes.js";
-import channelRoutes from "./routes/channelRoutes.js";
-import dmRoutes      from "./routes/dmRoutes.js";
-import prisma        from "./lib/prisma.js";
-import uploadRoutes from "./routes/uploadRoutes.js";
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import { PrismaClient } from '@prisma/client';
 
-const app    = express();
+import authRoutes from './routes/authRoutes.js';
+import channelRoutes from './routes/channelRoutes.js';
+import dmRoutes from './routes/dmRoutes.js';
+import uploadRoutes from './routes/uploadRoutes.js';
+
+dotenv.config();
+
+const app = express();
 const server = createServer(app);
-const PORT   = process.env.PORT || 3001;
+const prisma = new PrismaClient();
 
-// ─── Socket.io ─────────────────────────────────────────────────────
-export const io = new Server(server, {
+const io = new Server(server, {
   cors: {
-    origin:      process.env.CLIENT_URL || "http://localhost:5173",
+    origin: process.env.CLIENT_URL || 'http://localhost:5173',
     credentials: true,
   },
 });
 
-const onlineUsers = new Map(); // socketId → userId
-
-io.on("connection", (socket) => {
-  console.log("Socket conectado:", socket.id);
-
-  // Usuario se identifica al conectar
-  socket.on("user:join", async (userId) => {
-    onlineUsers.set(socket.id, userId);
-    try {
-      await prisma.user.update({
-        where: { id: userId },
-        data:  { isOnline: true, lastSeen: new Date() },
-      });
-    } catch (err) {
-      console.error("[user:join]", err);
-    }
-    socket.broadcast.emit("user:online", userId);
-    console.log("User online:", userId);
-  });
-
-  // Unirse a canal o sala DM
-  socket.on("channel:join", (roomId) => {
-    socket.join(roomId);
-  });
-
-  // Salir de canal o sala DM
-  socket.on("channel:leave", (roomId) => {
-    socket.leave(roomId);
-  });
-
-  // Mensaje en canal — guardar en DB y emitir
-  socket.on("message:send", async ({ channelId, content, userId }) => {
-    try {
-      const message = await prisma.message.create({
-        data: { content, channelId, userId },
-        include: {
-          user: { select: { id: true, name: true, avatar: true } },
-        },
-      });
-      io.to(channelId).emit("message:new", message);
-    } catch (err) {
-      console.error("[message:send]", err);
-    }
-  });
-
-  // DM en tiempo real — guardar en DB y emitir a la sala privada
-  socket.on("dm:send", async ({ senderId, receiverId, content, roomId }) => {
-    try {
-      const message = await prisma.directMessage.create({
-        data: { content, senderId, receiverId },
-        include: {
-          sender:   { select: { id: true, name: true, avatar: true } },
-          receiver: { select: { id: true, name: true, avatar: true } },
-        },
-      });
-      io.to(roomId).emit("dm:new", message);
-    } catch (err) {
-      console.error("[dm:send]", err);
-    }
-  });
-
-  // Typing indicator
-  socket.on("typing:start", ({ channelId, userName }) => {
-    socket.to(channelId).emit("typing:start", { userName });
-  });
-
-  socket.on("typing:stop", ({ channelId }) => {
-    socket.to(channelId).emit("typing:stop");
-  });
-
-  // Desconexión
-  socket.on("disconnect", async () => {
-    const userId = onlineUsers.get(socket.id);
-    if (userId) {
-      onlineUsers.delete(socket.id);
-      try {
-        await prisma.user.update({
-          where: { id: userId },
-          data:  { isOnline: false, lastSeen: new Date() },
-        });
-      } catch (err) {
-        console.error("[disconnect]", err);
-      }
-      socket.broadcast.emit("user:offline", userId);
-    }
-    console.log("Socket desconectado:", socket.id);
-  });
-});
-
-// ─── Middlewares ───────────────────────────────────────────────────
-app.use(helmet());
 app.use(cors({
-  origin:      process.env.CLIENT_URL || "http://localhost:5173",
+  origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true,
 }));
-app.use(express.json({ limit: "10kb" }));
-app.use(cookieParser());
 
-// ─── Rutas ─────────────────────────────────────────────────────────
-app.use("/api/auth",     authRoutes);
-app.use("/api/channels", channelRoutes);
-app.use("/api/dms",      dmRoutes);
-app.get("/health", (_, res) => res.json({ status: "ok" }));
-app.use("/api/upload", uploadRoutes);
+app.use(express.json());
 
-// ─── Seed canales por defecto ──────────────────────────────────────
-const seedChannels = async () => {
-  const defaults = ["general", "desarrollo", "diseño", "random"];
-  for (const name of defaults) {
-    await prisma.channel.upsert({
-      where:  { name },
-      update: {},
-      create: { name },
-    });
-  }
-  console.log("Canales por defecto listos");
-};
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/channels', channelRoutes);
+app.use('/api/dm', dmRoutes);
+app.use('/api/upload', uploadRoutes);
 
-// ─── Arrancar ──────────────────────────────────────────────────────
-server.listen(PORT, async () => {
-  console.log(`Server running on port ${PORT}`);
-  await seedChannels();
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-export default app;
+// Socket.io
+io.on('connection', (socket) => {
+  console.log('Usuario conectado:', socket.id);
+
+  socket.on('join-channel', (channelId) => {
+    socket.join(channelId);
+    console.log(`Socket ${socket.id} se unió al canal ${channelId}`);
+  });
+
+  socket.on('leave-channel', (channelId) => {
+    socket.leave(channelId);
+    console.log(`Socket ${socket.id} dejó el canal ${channelId}`);
+  });
+
+  socket.on('send-message', async (data) => {
+    try {
+      const { content, channelId, senderId, type } = data;
+      
+      const message = await prisma.message.create({
+        data: {
+          content,
+          type: type || 'text',
+          channelId: channelId,
+          senderId: senderId,
+        },
+        include: {
+          sender: {
+            select: {
+              id: true,
+              name: true,
+              avatar: true,
+            },
+          },
+        },
+      });
+
+      io.to(channelId).emit('new-message', message);
+    } catch (error) {
+      console.error('Error enviando mensaje:', error);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Usuario desconectado:', socket.id);
+  });
+});
+
+// Seed de canales (NO BLOQUEANTE)
+const seedChannels = async () => {
+  try {
+    console.log('⏳ Intentando crear canales por defecto...');
+    
+    // Esperar 5 segundos para dar tiempo a que la DB esté lista
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    
+    const defaultChannels = [
+      { name: 'general', description: 'Canal general del equipo' },
+      { name: 'desarrollo', description: 'Discusiones sobre desarrollo' },
+      { name: 'diseño', description: 'Discusiones sobre diseño' },
+      { name: 'random', description: 'Conversaciones aleatorias' },
+    ];
+
+    for (const channel of defaultChannels) {
+      await prisma.channel.upsert({
+        where: { name: channel.name },
+        update: {},
+        create: channel,
+      });
+    }
+    console.log('✅ Canales creados correctamente');
+  } catch (error) {
+    console.log('⚠️ Seed omitido - los canales se pueden crear manualmente');
+    console.log('   Error:', error.message);
+  }
+};
+
+// Iniciar servidor
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  // Ejecutar seed DESPUÉS de iniciar (no bloquea)
+  seedChannels();
+});
