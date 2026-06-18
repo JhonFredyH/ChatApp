@@ -16,44 +16,61 @@ const app = express();
 const server = createServer(app);
 const prisma = new PrismaClient();
 
-// Configuración de CORS para múltiples dominios
-const allowedOrigins = [
-  process.env.CLIENT_URL || 'http://localhost:5173',
-  'https://chat-app-sigma-six-76.vercel.app',
-  'https://chat-9bu4njzd6-jhonfredyhs-projects.vercel.app',
-  'https://chatapp-git-main-jhonfredyhs-projects.vercel.app',
-];
-
-const io = new Server(server, {
-  cors: {
-    origin: function(origin, callback) {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.log('CORS blocked origin:', origin);
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    credentials: true,
-    methods: ['GET', 'POST'],
-  },
-});
-
-app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log('CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
+// CORS FLEXIBLE - Permite cualquier dominio de Vercel y localhost
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Permitir solicitudes sin origin (Postman, mobile apps, etc)
+    if (!origin) {
+      console.log('✅ CORS: Permitido (sin origin)');
+      return callback(null, true);
     }
+
+    // Lista de orígenes permitidos explícitamente
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      process.env.CLIENT_URL,
+    ].filter(Boolean);
+
+    // Patrones permitidos (regex)
+    const allowedPatterns = [
+      /^https:\/\/.*\.vercel\.app$/,           // Cualquier dominio de Vercel
+      /^https:\/\/chat-.*\.vercel\.app$/,     // Dominios que empiecen con "chat-"
+      /^http:\/\/localhost:\d+$/,             // localhost con cualquier puerto
+    ];
+
+    // Verificar si está en la lista explícita
+    if (allowedOrigins.includes(origin)) {
+      console.log(`✅ CORS: Permitido (lista explícita) - ${origin}`);
+      return callback(null, true);
+    }
+
+    // Verificar si coincide con algún patrón
+    const isAllowed = allowedPatterns.some(pattern => pattern.test(origin));
+    
+    if (isAllowed) {
+      console.log(`✅ CORS: Permitido (patrón) - ${origin}`);
+      return callback(null, true);
+    }
+
+    // Si no coincide, bloquear
+    console.log(`❌ CORS: Bloqueado - ${origin}`);
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 600, // 10 minutos
+};
+
+// Aplicar CORS a Express
+app.use(cors(corsOptions));
+
+// Socket.io con CORS flexible
+const io = new Server(server, {
+  cors: corsOptions,
+});
 
 app.use(express.json());
 
@@ -63,13 +80,18 @@ app.use('/api/channels', channelRoutes);
 app.use('/api/dm', dmRoutes);
 app.use('/api/upload', uploadRoutes);
 
+// Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    cors: 'flexible'
+  });
 });
 
 // Socket.io
 io.on('connection', (socket) => {
-  console.log('Usuario conectado:', socket.id);
+  console.log('✅ Usuario conectado:', socket.id);
 
   socket.on('join-channel', (channelId) => {
     socket.join(channelId);
@@ -110,7 +132,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('Usuario desconectado:', socket.id);
+    console.log('❌ Usuario desconectado:', socket.id);
   });
 });
 
@@ -118,8 +140,6 @@ io.on('connection', (socket) => {
 const seedChannels = async () => {
   try {
     console.log('⏳ Intentando crear canales por defecto...');
-    
-    // Esperar 5 segundos para dar tiempo a que la DB esté lista
     await new Promise(resolve => setTimeout(resolve, 5000));
     
     const defaultChannels = [
@@ -146,7 +166,7 @@ const seedChannels = async () => {
 // Iniciar servidor
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  // Ejecutar seed DESPUÉS de iniciar (no bloquea)
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🌐 CORS: Flexible mode (permite cualquier dominio de Vercel)`);
   seedChannels();
 });
