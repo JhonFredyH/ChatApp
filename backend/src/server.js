@@ -16,36 +16,31 @@ const app = express();
 const server = createServer(app);
 const prisma = new PrismaClient();
 
-// CORS FLEXIBLE - Permite cualquier dominio de Vercel y localhost
+// CORS FLEXIBLE
 const corsOptions = {
   origin: function (origin, callback) {
-    // Permitir solicitudes sin origin (Postman, mobile apps, etc)
     if (!origin) {
       console.log('✅ CORS: Permitido (sin origin)');
       return callback(null, true);
     }
 
-    // Lista de orígenes permitidos explícitamente
     const allowedOrigins = [
       'http://localhost:5173',
       'http://localhost:3000',
       process.env.CLIENT_URL,
     ].filter(Boolean);
 
-    // Patrones permitidos (regex)
     const allowedPatterns = [
-      /^https:\/\/.*\.vercel\.app$/,           // Cualquier dominio de Vercel
-      /^https:\/\/chat-.*\.vercel\.app$/,     // Dominios que empiecen con "chat-"
-      /^http:\/\/localhost:\d+$/,             // localhost con cualquier puerto
+      /^https:\/\/.*\.vercel\.app$/,
+      /^https:\/\/chat-.*\.vercel\.app$/,
+      /^http:\/\/localhost:\d+$/,
     ];
 
-    // Verificar si está en la lista explícita
     if (allowedOrigins.includes(origin)) {
       console.log(`✅ CORS: Permitido (lista explícita) - ${origin}`);
       return callback(null, true);
     }
 
-    // Verificar si coincide con algún patrón
     const isAllowed = allowedPatterns.some(pattern => pattern.test(origin));
     
     if (isAllowed) {
@@ -53,7 +48,6 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    // Si no coincide, bloquear
     console.log(`❌ CORS: Bloqueado - ${origin}`);
     callback(new Error('Not allowed by CORS'));
   },
@@ -61,13 +55,12 @@ const corsOptions = {
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   exposedHeaders: ['Content-Range', 'X-Content-Range'],
-  maxAge: 600, // 10 minutos
+  maxAge: 600,
 };
 
-// Aplicar CORS a Express
 app.use(cors(corsOptions));
 
-// Socket.io con CORS flexible
+// Socket.io con CORS
 const io = new Server(server, {
   cors: corsOptions,
 });
@@ -89,20 +82,76 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Socket.io
+// ──────────────────────────────────────────────────────────────
+// Socket.io handlers - COMPLETOS
+// ──────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
   console.log('✅ Usuario conectado:', socket.id);
 
+  // Unirse a canal
   socket.on('join-channel', (channelId) => {
     socket.join(channelId);
     console.log(`Socket ${socket.id} se unió al canal ${channelId}`);
   });
 
+  // Salir de canal
   socket.on('leave-channel', (channelId) => {
     socket.leave(channelId);
     console.log(`Socket ${socket.id} dejó el canal ${channelId}`);
   });
 
+  // ─── NUEVOS: Handlers para Mensajes Directos ───────────────
+  socket.on('dm:join', (roomId) => {
+    socket.join(roomId);
+    console.log(`Socket ${socket.id} se unió a DM room ${roomId}`);
+  });
+
+  socket.on('dm:leave', (roomId) => {
+    socket.leave(roomId);
+    console.log(`Socket ${socket.id} dejó DM room ${roomId}`);
+  });
+
+  socket.on('dm:send', async (data) => {
+    try {
+      const { content, receiverId, senderId, roomId } = data;
+      
+      console.log('📩 Enviando DM:', { senderId, receiverId, roomId, content });
+
+      const message = await prisma.directMessage.create({
+        data: {
+          content,
+          senderId,
+          receiverId,
+        },
+        include: {
+          sender: {
+            select: {
+              id: true,
+              name: true,
+              avatar: true,
+            },
+          },
+          receiver: {
+            select: {
+              id: true,
+              name: true,
+              avatar: true,
+            },
+          },
+        },
+      });
+
+      console.log('✅ DM creado:', message.id);
+      
+      // Emitir a AMBOS usuarios en el room
+      io.to(roomId).emit('dm:new', message);
+    } catch (error) {
+      console.error('❌ Error enviando DM:', error);
+    }
+  });
+  // ────────────────────────────────────────────────────────────
+
+  // Enviar mensaje de canal
   socket.on('send-message', async (data) => {
     try {
       const { content, channelId, senderId, type } = data;
@@ -131,12 +180,13 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Desconexión
   socket.on('disconnect', () => {
     console.log('❌ Usuario desconectado:', socket.id);
   });
 });
 
-// Seed de canales (NO BLOQUEANTE)
+// Seed de canales
 const seedChannels = async () => {
   try {
     console.log('⏳ Intentando crear canales por defecto...');
