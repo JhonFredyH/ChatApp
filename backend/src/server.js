@@ -77,7 +77,7 @@ app.use(express.json());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/channels', channelRoutes);
-app.use('/api/dm', dmRoutes);
+app.use('/api/dms', dmRoutes);
 app.use('/api/upload', uploadRoutes);
 
 // Health check
