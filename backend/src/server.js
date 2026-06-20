@@ -212,6 +212,16 @@ const seedChannels = async () => {
 
 // Iniciar servidor
 const PORT = process.env.PORT || 3001;
+// Manejo de errores comunes al escuchar el puerto
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error(`⚠️  Puerto ${PORT} en uso. Detén el proceso que lo ocupa o cambia la variable PORT.`);
+    process.exit(1);
+  }
+  console.error('Error en el servidor:', err);
+  process.exit(1);
+});
+
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌐 CORS: Flexible mode (permite cualquier dominio de Vercel)`);
