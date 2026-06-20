@@ -22,7 +22,7 @@ export function EmojiPicker({ onSelect, onClose }) {
   }, [onClose]);
 
   const filtered = search
-    ? Object.values(EMOJIS).flat().filter(() => true).slice(0, 40)
+    ? Object.values(EMOJIS).flat().filter((emoji) => emoji.includes(search.trim()))
     : EMOJIS[category] || [];
 
   return (

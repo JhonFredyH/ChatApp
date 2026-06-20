@@ -88,38 +88,34 @@ app.get('/health', (req, res) => {
 io.on('connection', (socket) => {
   console.log('✅ Usuario conectado:', socket.id);
 
-  // Unirse a canal
-  socket.on('join-channel', (channelId) => {
-    socket.join(channelId);
-    console.log(`Socket ${socket.id} se unió al canal ${channelId}`);
-  });
-
-  // Salir de canal
-  socket.on('leave-channel', (channelId) => {
-    socket.leave(channelId);
-    console.log(`Socket ${socket.id} dejó el canal ${channelId}`);
-  });
-
-  // ─── NUEVOS: Handlers para Mensajes Directos ───────────────
-  socket.on('dm:join', (roomId) => {
+  const joinRoom = (roomId) => {
     socket.join(roomId);
-    console.log(`Socket ${socket.id} se unió a DM room ${roomId}`);
-  });
+    console.log(`Socket ${socket.id} se unió a la sala ${roomId}`);
+  };
 
-  socket.on('dm:leave', (roomId) => {
+  const leaveRoom = (roomId) => {
     socket.leave(roomId);
-    console.log(`Socket ${socket.id} dejó DM room ${roomId}`);
-  });
+    console.log(`Socket ${socket.id} salió de la sala ${roomId}`);
+  };
+
+  socket.on('channel:join', joinRoom);
+  socket.on('join-channel', joinRoom);
+  socket.on('channel:leave', leaveRoom);
+  socket.on('leave-channel', leaveRoom);
+
+  socket.on('dm:join', joinRoom);
+  socket.on('dm:leave', leaveRoom);
 
   socket.on('dm:send', async (data) => {
     try {
-      const { content, receiverId, senderId, roomId } = data;
+      const { content, receiverId, senderId, roomId, type } = data;
       
-      console.log('📩 Enviando DM:', { senderId, receiverId, roomId, content });
+      console.log('📩 Enviando DM:', { senderId, receiverId, roomId, type, content });
 
       const message = await prisma.directMessage.create({
         data: {
           content,
+          type: type?.toUpperCase() === 'IMAGE' ? 'IMAGE' : 'TEXT',
           senderId,
           receiverId,
         },
@@ -151,20 +147,18 @@ io.on('connection', (socket) => {
   });
   // ────────────────────────────────────────────────────────────
 
-  // Enviar mensaje de canal
-  socket.on('send-message', async (data) => {
+  const sendMessage = async ({ content, channelId, senderId, userId, type }) => {
     try {
-      const { content, channelId, senderId, type } = data;
-      
+      const authorId = senderId || userId;
       const message = await prisma.message.create({
         data: {
           content,
-          type: type || 'text',
-          channelId: channelId,
-          senderId: senderId,
+          type: type?.toUpperCase() === 'IMAGE' ? 'IMAGE' : 'TEXT',
+          channelId,
+          userId: authorId,
         },
         include: {
-          sender: {
+          user: {
             select: {
               id: true,
               name: true,
@@ -174,11 +168,14 @@ io.on('connection', (socket) => {
         },
       });
 
-      io.to(channelId).emit('new-message', message);
+      io.to(channelId).emit('message:new', message);
     } catch (error) {
       console.error('Error enviando mensaje:', error);
     }
-  });
+  };
+
+  socket.on('message:send', sendMessage);
+  socket.on('send-message', sendMessage);
 
   // Desconexión
   socket.on('disconnect', () => {

@@ -42,7 +42,7 @@ export const getMessages = async (req, res) => {
 export const createMessage = async (req, res) => {
   try {
     const { channelId } = req.params;
-    const { content }   = req.body;
+    const { content, type } = req.body;
 
     if (!content?.trim()) {
       return res.status(400).json({ message: "El mensaje no puede estar vacío" });
@@ -51,6 +51,7 @@ export const createMessage = async (req, res) => {
     const message = await prisma.message.create({
       data: {
         content,
+        type: type?.toUpperCase() === 'IMAGE' ? 'IMAGE' : 'TEXT',
         channelId,
         userId: req.user.id,
       },

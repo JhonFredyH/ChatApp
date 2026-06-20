@@ -39,7 +39,7 @@ export const getDMs = async (req, res) => {
 export const sendDM = async (req, res) => {
   try {
     const { userId }  = req.params;
-    const { content } = req.body;
+    const { content, type } = req.body;
     const myId        = req.user.id;
 
     if (!content?.trim()) {
@@ -49,6 +49,7 @@ export const sendDM = async (req, res) => {
     const message = await prisma.directMessage.create({
       data: {
         content,
+        type: type?.toUpperCase() === 'IMAGE' ? 'IMAGE' : 'TEXT',
         senderId:   myId,
         receiverId: userId,
       },

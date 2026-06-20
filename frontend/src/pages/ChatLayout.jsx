@@ -332,11 +332,11 @@ const MessageBubble = React.memo(({ msg, currentUserId }) => {
   const content    = msg.content || msg.text;
 
   // Detectar si es una imagen
-  const isImage = content && typeof content === 'string' && 
+  const isImage = msg.type === 'IMAGE' || (content && typeof content === 'string' && 
     content.startsWith('https://') && 
     (content.includes('.jpg') || content.includes('.jpeg') || 
      content.includes('.png') || content.includes('.gif') || 
-     content.includes('.webp') || content.includes('chat-images'));
+     content.includes('.webp') || content.includes('chat-images')));
 
   if (isMe) {
     return (
@@ -467,7 +467,7 @@ const InputBar = ({ placeholder, onSend, onTyping, onTypingStop }) => {
       setUploading(true);
       const { uploadImage } = await import('../lib/uploadService');
       const result = await uploadImage(file);
-      onSend(result.url);
+      onSend({ content: result.url, type: 'IMAGE' });
       e.target.value = '';
     } catch (error) {
       console.error('Error subiendo imagen:', error);
@@ -565,8 +565,17 @@ const ChatArea = ({ channel, currentUser }) => {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, typingUser]);
 
-  const handleSend = (text) => {
-    socket.emit("message:send", { channelId: channel.id, content: text, userId: currentUser.id });
+  const handleSend = (payload) => {
+    const message = typeof payload === 'string'
+      ? { content: payload, type: 'TEXT' }
+      : payload;
+
+    socket.emit("message:send", {
+      channelId: channel.id,
+      content: message.content,
+      userId: currentUser.id,
+      type: message.type,
+    });
   };
 
   return (
@@ -626,11 +635,11 @@ const DmArea = ({ dmUser, currentUser }) => {
     if (!dmUser?.id || !currentUser?.id) return;
     setMessages([]);
     setLoading(true);
-    socket.emit("channel:join", dmRoomId);
+    socket.emit("dm:join", dmRoomId);
     api.get(`/dms/${dmUser.id}`, {
       headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` },
     }).then(({ data }) => setMessages(data)).catch(console.error).finally(() => setLoading(false));
-    return () => socket.emit("channel:leave", dmRoomId);
+    return () => socket.emit("dm:leave", dmRoomId);
   }, [dmUser?.id, currentUser?.id, dmRoomId]);
 
   useEffect(() => {
@@ -649,8 +658,18 @@ const DmArea = ({ dmUser, currentUser }) => {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, typingUser]);
 
-  const handleSend = (text) => {
-    socket.emit("dm:send", { receiverId: dmUser.id, senderId: currentUser.id, content: text, roomId: dmRoomId });
+const handleSend = (payload) => {
+      const message = typeof payload === 'string'
+        ? { content: payload, type: 'TEXT' }
+        : payload;
+
+      socket.emit("dm:send", {
+        receiverId: dmUser.id,
+        senderId: currentUser.id,
+        content: message.content,
+        roomId: dmRoomId,
+        type: message.type,
+      });
   };
 
   return (
